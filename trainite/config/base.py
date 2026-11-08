@@ -85,6 +85,7 @@ class TrainerConfig(BaseModel):
     epochs: int = Field(default=3, gt=0)
     precision: Literal["float32", "fp16", "bf16"] = "float32"
     log_every_steps: int = Field(default=10, gt=0)
+    checkpoint_interval_minutes: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
     early_stopping_patience: int | None = Field(default=3, gt=0)
     inference_every_epochs: int | None = Field(default=None, gt=0)
     inference_num_samples: int = Field(default=5, gt=0)

@@ -133,6 +133,12 @@ To launch this experiment on cloud GPUs (AWS, GCP, Azure, Lambda, etc.) using [S
 
 ## Experiment Logging and Checkpoints
 
+Set `trainer.checkpoint_interval_minutes` to a positive number to save the
+latest model and optimizer after that much active training time. The timer is
+checked after each completed step, so a long step can pass the deadline before
+the save starts. Evaluation and checkpoint-saving time are excluded. Leave the
+option `null` to keep epoch-only latest checkpoints.
+
 The default `logger: tensorboard` stores metrics and checkpoints locally. To use ClearML instead:
 
 1. Run `clearml-init` to configure your ClearML server and credentials.

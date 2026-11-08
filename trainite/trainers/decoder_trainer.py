@@ -218,6 +218,7 @@ class Trainer:
                 self.trainer,
                 {"model": unwrapped_model, "optimizer": self.optimizer},
                 save_handler,
+                interval_minutes=self.trainer_config.checkpoint_interval_minutes,
             )
         else:
             self.best_checkpoint = None

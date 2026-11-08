@@ -138,3 +138,12 @@ def test_trainer_config_precision():
     # Unsupported precision raises ValidationError
     with pytest.raises(ValidationError):
         TrainerConfig(precision="invalid_precision")  # type: ignore[arg-type]
+
+
+def test_trainer_checkpoint_interval_validation():
+    assert TrainerConfig().checkpoint_interval_minutes is None
+    assert TrainerConfig(checkpoint_interval_minutes=2.5).checkpoint_interval_minutes == 2.5
+
+    for interval in (0.0, -1.0, float("inf"), float("nan")):
+        with pytest.raises(ValidationError):
+            TrainerConfig(checkpoint_interval_minutes=interval)

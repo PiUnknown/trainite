@@ -2,7 +2,9 @@ import importlib
 import inspect
 import itertools
 import logging
+import math
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar
@@ -464,12 +466,14 @@ def setup_training_checkpointing(
     engine: Engine,
     to_save: dict[str, Any],
     save_handler: DiskSaver | ClearMLSaver,
+    interval_minutes: float | None = None,
+    monotonic_clock: Callable[[], float] = time.monotonic,
 ) -> Checkpoint:
-    """Save the latest model and optimizer state at the end of every epoch.
+    """Save the latest model and optimizer state at epoch end and optionally by active time.
 
     Keeps only the single most recent checkpoint (``n_saved=1``) so disk usage
-    stays bounded.  The checkpoint can be used to resume training after an
-    interruption.
+    stays bounded. The payload contains model and optimizer state; it does not
+    capture all state required for faithful training resumption.
 
     The filename pattern is ``last.pt`` (prefix=``last``, no score suffix).
 
@@ -483,8 +487,77 @@ def setup_training_checkpointing(
         global_step_transform=lambda *_: engine.state.iteration,
         filename_pattern="{filename_prefix}.{ext}",
     )
-    engine.add_event_handler(Events.EPOCH_COMPLETED, last_checkpoint)
+    if interval_minutes is None:
+        engine.add_event_handler(Events.EPOCH_COMPLETED, last_checkpoint)
+    else:
+        if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+            raise ValueError("interval_minutes must be a positive finite number")
+        _ActiveTimeCheckpoint(
+            engine,
+            last_checkpoint,
+            interval_seconds=interval_minutes * 60,
+            clock=monotonic_clock,
+        )
     return last_checkpoint
+
+
+class _ActiveTimeCheckpoint:
+    """Coordinate timed and epoch latest saves while counting active step time."""
+
+    def __init__(
+        self,
+        engine: Engine,
+        checkpoint: Checkpoint,
+        interval_seconds: float,
+        clock: Callable[[], float],
+    ) -> None:
+        self.checkpoint = checkpoint
+        self.interval_seconds = interval_seconds
+        self.clock = clock
+        self.elapsed = 0.0
+        self.step_started_at: float | None = None
+        self.last_saved_iteration: int | None = None
+        engine.add_event_handler(Events.STARTED, self.reset)
+        engine.add_event_handler(Events.ITERATION_STARTED, self.start_step)
+        engine.add_event_handler(Events.ITERATION_COMPLETED, self.finish_step)
+        engine.add_event_handler(Events.EPOCH_COMPLETED, self.save_epoch)
+
+    def reset(self, engine: Engine) -> None:
+        self.elapsed = 0.0
+        self.step_started_at = None
+        self.last_saved_iteration = None
+        self.checkpoint.reset()
+
+    def start_step(self, engine: Engine) -> None:
+        self.step_started_at = self.clock()
+
+    def finish_step(self, engine: Engine) -> None:
+        if self.step_started_at is None:
+            return
+        self.elapsed += self.clock() - self.step_started_at
+        self.step_started_at = None
+        if self.elapsed >= self.interval_seconds:
+            self.save_latest(engine)
+            # Reset only after the synchronous save succeeds. A failure propagates
+            # with the interval still due and without recording a successful save.
+            self.elapsed = 0.0
+
+    def save_epoch(self, engine: Engine) -> None:
+        self.save_latest(engine)
+
+    def save_latest(self, engine: Engine) -> None:
+        iteration = engine.state.iteration
+        if self.last_saved_iteration == iteration:
+            return
+        checkpoint_state = self.checkpoint.state_dict()
+        try:
+            self.checkpoint(engine)
+        except BaseException:
+            # Ignite updates Checkpoint's internal saved-file list before it
+            # calls the save handler. Restore that list if saving raises.
+            self.checkpoint.load_state_dict(checkpoint_state)
+            raise
+        self.last_saved_iteration = iteration
 
 
 def setup_best_model_checkpoint(

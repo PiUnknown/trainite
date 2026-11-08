@@ -392,6 +392,7 @@ def test_clearml_saver_is_used(
         trainer.trainer,
         {"model": trainer.model, "optimizer": trainer.optimizer},
         mock_clearml_saver.return_value,
+        interval_minutes=project_config.trainer.checkpoint_interval_minutes,
     )
 
 

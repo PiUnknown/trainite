@@ -216,12 +216,15 @@ def test_init_generates_valid_project(models: list[str], dataset: str, trainer: 
             generated_config = yaml.safe_load(f)
 
         assert generated_config["project_name"] == project_dir.name
+        assert generated_config["trainer"]["checkpoint_interval_minutes"] is None
         assert generated_config["output"]["run_name"] == (f"{models[0]}__{dataset}".replace("-", "_"))
         assert generated_config["model"]["_target_"].startswith("models.")
         assert generated_config["model"]["collate_fn_target"].startswith("models.")
         loss_symbol = "GemmaMoECausalLMLoss" if models[0] == "gemma4-moe" else "CausalLMCrossEntropyLoss"
         assert generated_config["loss"]["_target_"] == f"models.{model_specs[0].name}.{loss_symbol}"
         assert not (project_dir / "losses").exists()
+        generated_readme = (project_dir / "README.md").read_text()
+        assert "trainer.checkpoint_interval_minutes" in generated_readme
 
         # Check if python files are parseable
         python_files = [
